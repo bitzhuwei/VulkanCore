@@ -114,7 +114,17 @@ namespace VulkanCore
         /// <param name="srcPointer">A pointer to the value to copy.</param>
         /// <param name="value">The location to copy to.</param>
         public static void Read<T>(IntPtr srcPointer, ref T value)
-            => Unsafe.Copy(ref value, srcPointer.ToPointer());
+        // => Unsafe.Copy(ref value, srcPointer.ToPointer());
+        {
+            int stride = SizeOf<T>();
+            long size = stride * 1;
+            //void* srcPtr = Unsafe.AsPointer(ref values[0]);
+            var values = new T[] { value };
+            GCHandle pinned = GCHandle.Alloc(values, GCHandleType.Pinned);
+            IntPtr dstPointer = Marshal.UnsafeAddrOfPinnedArrayElement(values, 0);
+            System.Buffer.MemoryCopy(srcPointer.ToPointer(), dstPointer.ToPointer(), size, size);
+            pinned.Free();
+        }
 
         /// <summary>
         /// Copies values of type <typeparamref name="T"/> to the given location.
@@ -128,8 +138,12 @@ namespace VulkanCore
 
             int stride = SizeOf<T>();
             long size = stride * values.Length;
-            void* dstPtr = Unsafe.AsPointer(ref values[0]);
+            //void* dstPtr = Unsafe.AsPointer(ref values[0]);
+            GCHandle pinned = GCHandle.Alloc(values, GCHandleType.Pinned);
+            IntPtr header = Marshal.UnsafeAddrOfPinnedArrayElement(values, 0);
+            var dstPtr = (byte*)header;
             System.Buffer.MemoryCopy(srcPointer.ToPointer(), dstPtr, size, size);
+            pinned.Free();
         }
 
         /// <summary>
@@ -139,7 +153,18 @@ namespace VulkanCore
         /// <param name="dstPointer">The location to copy to.</param>
         /// <param name="value">A reference to the value to copy.</param>
         public static void Write<T>(IntPtr dstPointer, ref T value)
-            => Unsafe.Copy(dstPointer.ToPointer(), ref value);
+        // => Unsafe.Copy(dstPointer.ToPointer(), ref value);
+        {
+            int stride = SizeOf<T>();
+            long size = stride * 1;
+            //void* srcPtr = Unsafe.AsPointer(ref values[0]);
+            var values = new T[] { value };
+            GCHandle pinned = GCHandle.Alloc(values, GCHandleType.Pinned);
+            IntPtr header = Marshal.UnsafeAddrOfPinnedArrayElement(values, 0);
+            void* srcPtr = header.ToPointer();
+            System.Buffer.MemoryCopy(srcPtr, dstPointer.ToPointer(), size, size);
+            pinned.Free();
+        }
 
         /// <summary>
         /// Copies values of type <typeparamref name="T"/> to the given location.
@@ -154,8 +179,12 @@ namespace VulkanCore
 
             int stride = SizeOf<T>();
             long size = stride * values.Length;
-            void* srcPtr = Unsafe.AsPointer(ref values[0]);
+            //void* srcPtr = Unsafe.AsPointer(ref values[0]);
+            GCHandle pinned = GCHandle.Alloc(values, GCHandleType.Pinned);
+            IntPtr header = Marshal.UnsafeAddrOfPinnedArrayElement(values, 0);
+            void* srcPtr = header.ToPointer();
             System.Buffer.MemoryCopy(srcPtr, dstPointer.ToPointer(), size, size);
+            pinned.Free();
         }
 
         /// <summary>
@@ -163,7 +192,7 @@ namespace VulkanCore
         /// </summary>
         /// <typeparam name="T">The type of object whose size is retrieved.</typeparam>
         /// <returns>The size of an object of type <typeparamref name="T"/>.</returns>
-        public static int SizeOf<T>() => Unsafe.SizeOf<T>();
+        public static int SizeOf<T>() => Marshal.SizeOf<T>();// Unsafe.SizeOf<T>();
 
         /// <summary>
         /// Casts the gived object to the specified type.
@@ -171,7 +200,7 @@ namespace VulkanCore
         /// <typeparam name="T">The type which the object will be cast to.</typeparam>
         /// <param name="obj">The object to cast.</param>
         /// <returns>The original object, casted to the given type.</returns>
-        public static T As<T>(object obj) where T : class => Unsafe.As<T>(obj);
+        public static T As<T>(object obj) where T : class => (T)obj;// Unsafe.As<T>(obj);
 
         /// <summary>
         /// Utilities for interoping with strings.
@@ -304,7 +333,19 @@ namespace VulkanCore
             public static IntPtr AllocToPointer<T>(ref T value) where T : struct
             {
                 IntPtr ptr = Alloc<T>();
-                Unsafe.Copy(ptr.ToPointer(), ref value);
+                //Unsafe.Copy(ptr.ToPointer(), ref value);
+                int structSize = SizeOf<T>();
+
+                var walk = (byte*)ptr;
+                var values = new T[] { value };
+                GCHandle pinned = GCHandle.Alloc(values, GCHandleType.Pinned);
+                IntPtr header = Marshal.UnsafeAddrOfPinnedArrayElement(values, 0);
+                var source = (byte*)header;
+                for (int i = 0; i < structSize; i++)
+                {
+                    walk[i] = source[i];
+                }
+                pinned.Free();
                 return ptr;
             }
 
@@ -323,7 +364,19 @@ namespace VulkanCore
                 if (!value.HasValue) return IntPtr.Zero;
 
                 IntPtr ptr = Alloc<T>();
-                Unsafe.Write(ptr.ToPointer(), value.Value);
+                //Unsafe.Write(ptr.ToPointer(), value.Value);
+                var values = new T[] { value.Value };
+                GCHandle pinned = GCHandle.Alloc(values, GCHandleType.Pinned);
+                IntPtr header = Marshal.UnsafeAddrOfPinnedArrayElement(values, 0);
+                var source = (byte*)header;
+                var totalSize = SizeOf<T>();
+                var walk = (byte*)ptr;
+                for (int i = 0; i < totalSize; i++)
+                {
+                    walk[i] = source[i];
+                }
+                pinned.Free();
+
                 return ptr;
             }
 
@@ -346,11 +399,19 @@ namespace VulkanCore
                 IntPtr ptr = Alloc(totalSize);
 
                 var walk = (byte*)ptr;
-                for (int i = 0; i < values.Length; i++)
+                //for (int i = 0; i < values.Length; i++)
+                //{
+                //    Unsafe.Copy(walk, ref values[i]);
+                //    walk += structSize;
+                //}
+                GCHandle pinned = GCHandle.Alloc(values, GCHandleType.Pinned);
+                IntPtr header = Marshal.UnsafeAddrOfPinnedArrayElement(values, 0);
+                var source = (byte*)header;
+                for (int i = 0; i < totalSize; i++)
                 {
-                    Unsafe.Copy(walk, ref values[i]);
-                    walk += structSize;
+                    walk[i] = source[i];
                 }
+                pinned.Free();
 
                 return ptr;
             }
